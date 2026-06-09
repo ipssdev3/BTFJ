@@ -121,7 +121,6 @@ public class Dbtf_strongcomp extends Dbtf_internal {
 		chead = 0 ;             /* component stack is empty */
 		jhead = 0 ;             /* Jstack and Pstack are empty */
 		Jstack [0] = j ;        /* put the first node j on the Jstack */
-		ASSERT (Flag [j] == UNVISITED) ;
 
 		while (jhead >= 0)
 		{
@@ -168,8 +167,6 @@ public class Dbtf_strongcomp extends Dbtf_internal {
 					/* Push i onto the stack and immediately break
 					 * so we can recurse on node i. */
 					Jstack [++jhead] = i ;
-					ASSERT (Time [i] == EMPTY) ;
-					ASSERT (Low [i] == EMPTY) ;
 					/* break here to do what the recursive call dfs (j,i) does */
 					break ;
 				}
@@ -179,9 +176,7 @@ public class Dbtf_strongcomp extends Dbtf_internal {
 					 * this is a back or cross edge if Time [i] < Time [j].
 					 * Note that i might equal j, in which case this code does
 					 * nothing. */
-					ASSERT (Time [i] > 0) ;
-					ASSERT (Low [i] > 0) ;
-					Low [j] = MIN (Low [j], Time [i]) ;
+					Low [j] = Low [j] < Time [i] ? Low [j] : Time [i] ;
 				}
 			}
 
@@ -202,10 +197,7 @@ public class Dbtf_strongcomp extends Dbtf_internal {
 					/* pop all nodes in this SCC from Cstack */
 					while (TRUE != 0)
 					{
-						ASSERT (chead >= 0) ;       /* stack not empty (j in it) */
 						i = Cstack [chead--] ;      /* pop a node from the Cstack */
-						ASSERT (i >= 0) ;
-						ASSERT (Flag [i] == UNASSIGNED) ;
 						Flag [i] = nblocks ;        /* assign i to current block */
 						if (i == j) break ;         /* current block ends at j */
 					}
@@ -215,7 +207,7 @@ public class Dbtf_strongcomp extends Dbtf_internal {
 				if (jhead >= 0)
 				{
 					parent = Jstack [jhead] ;
-					Low [parent] = MIN (Low [parent], Low [j]) ;
+					Low [parent] = Low [parent] < Low [j] ? Low [parent] : Low [j] ;
 				}
 			}
 		}
@@ -267,6 +259,9 @@ public class Dbtf_strongcomp extends Dbtf_internal {
 		int[] timestamp = new int [1] ;
 		int[] nblocks = new int [1] ;
 		int[] Flag, Cstack, Time, Low, Jstack, Pstack ;
+		long totalStart = Dbtf_profile.now() ;
+		long phaseStart, allocNs = 0L, initNs = 0L, dfsNs = 0L,
+				boundaryNs = 0L, permNs = 0L, qNs = 0L ;
 
 		/* ------------------------------------------------------------------ */
 		/* get and initialize workspace */
@@ -295,6 +290,7 @@ public class Dbtf_strongcomp extends Dbtf_internal {
 		 * is used for both the recursive and non-recursive versions.
 		 */
 
+		phaseStart = Dbtf_profile.now() ;
 		Time   = new int [n] ;
 		Flag   = new int [n] ;
 		Low    = P ;                /* use output array P as workspace for Low */
@@ -303,32 +299,30 @@ public class Dbtf_strongcomp extends Dbtf_internal {
 		/* stack for non-recursive dfs */
 		Jstack = new int [n] ;		/* stack for j */
 		Pstack = new int [n] ;		/* stack for p */
+		if (Dbtf_profile.enabled()) allocNs = System.nanoTime() - phaseStart ;
 
+		phaseStart = Dbtf_profile.now() ;
 		for (j = 0 ; j < n ; j++)
 		{
 			Flag [j] = UNVISITED ;
 			Low [j] = EMPTY ;
 			Time [j] = EMPTY ;
-			if (!NDEBUG)
-			{
-				Cstack [j] = EMPTY ;
-			}
 			Jstack [j] = EMPTY ;
 			Pstack [j] = EMPTY ;
 		}
 
 		timestamp[0] = 0 ;     /* each node given a timestamp when it is visited */
 		nblocks[0] = 0 ;       /* number of blocks found so far */
+		if (Dbtf_profile.enabled()) initNs = System.nanoTime() - phaseStart ;
 
 		/* ------------------------------------------------------------------ */
 		/* find the connected components via a depth-first-search */
 		/* ------------------------------------------------------------------ */
 
+		phaseStart = Dbtf_profile.now() ;
 		for (j = 0 ; j < n ; j++)
 		{
 			/* node j is unvisited or assigned to a block. Cstack is empty. */
-			ASSERT (Flag [j] == UNVISITED || (Flag [j] >= 0 &&
-					Flag [j] < nblocks[0]));
 			if (Flag [j] == UNVISITED)
 			{
 				/* non-recursive dfs (default) */
@@ -336,12 +330,13 @@ public class Dbtf_strongcomp extends Dbtf_internal {
 						Cstack, Jstack, Pstack) ;
 			}
 		}
-		ASSERT (timestamp[0] == n) ;
+		if (Dbtf_profile.enabled()) dfsNs = System.nanoTime() - phaseStart ;
 
 		/* ------------------------------------------------------------------ */
 		/* construct the block boundary array, R */
 		/* ------------------------------------------------------------------ */
 
+		phaseStart = Dbtf_profile.now() ;
 		for (b = 0 ; b < nblocks[0] ; b++)
 		{
 			R [b] = 0 ;
@@ -349,9 +344,6 @@ public class Dbtf_strongcomp extends Dbtf_internal {
 		for (j = 0 ; j < n ; j++)
 		{
 			/* node j has been assigned to block b = Flag [j] */
-			ASSERT (Time [j] > 0 && Time [j] <= n) ;
-			ASSERT (Low [j] > 0 && Low [j] <= n) ;
-			ASSERT (Flag [j] >= 0 && Flag [j] < nblocks[0]) ;
 			R [Flag [j]]++ ;
 		}
 		/* R [b] is now the number of nodes in block b.  Compute cumulative sum
@@ -366,32 +358,19 @@ public class Dbtf_strongcomp extends Dbtf_internal {
 			R [b] = Time [b] ;
 		}
 		R [nblocks[0]] = n ;
+		if (Dbtf_profile.enabled()) boundaryNs = System.nanoTime() - phaseStart ;
 
 		/* ------------------------------------------------------------------ */
 		/* construct the permutation, preserving the natural order */
 		/* ------------------------------------------------------------------ */
 
-		if (!NDEBUG)
-		{
-			for (k = 0 ; k < n ; k++)
-			{
-				P [k] = EMPTY ;
-			}
-		}
-
+		phaseStart = Dbtf_profile.now() ;
 		for (j = 0 ; j < n ; j++)
 		{
 			/* place column j in the permutation */
 			P [Time [Flag [j]]++] = j ;
 		}
-
-		if (!NDEBUG)
-		{
-			for (k = 0 ; k < n ; k++)
-			{
-				ASSERT (P [k] != EMPTY) ;
-			}
-		}
+		if (Dbtf_profile.enabled()) permNs = System.nanoTime() - phaseStart ;
 
 		/* Now block b consists of the nodes k1 to k2-1 in the permuted matrix,
 		 * where k1 = R [b] and k2 = R [b+1].  Row and column j of the original
@@ -406,6 +385,7 @@ public class Dbtf_strongcomp extends Dbtf_internal {
 
 		if (Q != null)
 		{
+			phaseStart = Dbtf_profile.now() ;
 			/* We found a symmetric permutation P for the matrix A*Q.  The overall
 			 * permutation is thus P*(A*Q)*P'.  Set Q=Q*P' so that the final
 			 * permutation is P*A*Q.  Use Time as workspace.  Note that this
@@ -419,6 +399,7 @@ public class Dbtf_strongcomp extends Dbtf_internal {
 			{
 				Q [k] = Time [k] ;
 			}
+			if (Dbtf_profile.enabled()) qNs = System.nanoTime() - phaseStart ;
 		}
 
 		/* ------------------------------------------------------------------ */
@@ -476,6 +457,9 @@ public class Dbtf_strongcomp extends Dbtf_internal {
 		/* return # of blocks / # of strongly connected components */
 		/* ------------------------------------------------------------------ */
 
+		Dbtf_profile.strongcomp(n, Ap[n], nblocks[0],
+				Dbtf_profile.enabled() ? System.nanoTime() - totalStart : 0L,
+				allocNs, initNs, dfsNs, boundaryNs, permNs, qNs);
 		return (nblocks[0]) ;
 	}
 

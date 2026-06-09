@@ -91,6 +91,8 @@ public class Dbtf_order extends Dbtf_internal {
 		int[] Flag ;
 		int[] Work ;
 		int nblocks, i, j, nbadcol ;
+		long totalStart = Dbtf_profile.now() ;
+		long phaseStart, maxtransNs = 0L, singularNs = 0L, strongNs = 0L ;
 
 		/* ------------------------------------------------------------------ */
 		/* compute the maximum matching */
@@ -98,7 +100,21 @@ public class Dbtf_order extends Dbtf_internal {
 
 		/* if maxwork > 0, then a maximum matching might not be found */
 
-		nmatch[0] = btf_maxtrans (n, n, Ap, Ai, maxwork, work, Q) ;
+		phaseStart = Dbtf_profile.now() ;
+		if (hasZeroFreeDiagonal(n, Ap, Ai))
+		{
+			for (j = 0 ; j < n ; j++)
+			{
+				Q [j] = j ;
+			}
+			nmatch[0] = n ;
+			work[0] = 0 ;
+		}
+		else
+		{
+			nmatch[0] = btf_maxtrans (n, n, Ap, Ai, maxwork, work, Q) ;
+		}
+		if (Dbtf_profile.enabled()) maxtransNs = System.nanoTime() - phaseStart ;
 
 		/* ------------------------------------------------------------------ */
 		/* complete permutation if the matrix is structurally singular */
@@ -111,6 +127,7 @@ public class Dbtf_order extends Dbtf_internal {
 
 		if (nmatch[0] < n)
 		{
+			phaseStart = Dbtf_profile.now() ;
 			/* get size-n work arrays */
 			Work = new int [n] ;
 			Flag = new int [n] ;
@@ -141,8 +158,6 @@ public class Dbtf_order extends Dbtf_internal {
 					Work [nbadcol++] = j ;
 				}
 			}
-			ASSERT (nmatch[0] + nbadcol == n) ;
-
 			/* make an assignment for each unmatched row */
 			for (i = 0 ; i < n ; i++)
 			{
@@ -154,6 +169,7 @@ public class Dbtf_order extends Dbtf_internal {
 					Q [i] = BTF_FLIP (j) ;
 				}
 			}
+			if (Dbtf_profile.enabled()) singularNs = System.nanoTime() - phaseStart ;
 		}
 
 		/* The permutation of a square matrix can be recovered as follows: Row i is
@@ -166,8 +182,35 @@ public class Dbtf_order extends Dbtf_internal {
 		/* find the strongly connected components */
 		/* ------------------------------------------------------------------ */
 
+		phaseStart = Dbtf_profile.now() ;
 		nblocks = btf_strongcomp (n, Ap, Ai, Q, P, R) ;
+		if (Dbtf_profile.enabled()) strongNs = System.nanoTime() - phaseStart ;
+		Dbtf_profile.order(n, Ap[n], nmatch[0], nblocks,
+				Dbtf_profile.enabled() ? System.nanoTime() - totalStart : 0L,
+				maxtransNs, singularNs, strongNs);
 		return (nblocks) ;
+	}
+
+	private static boolean hasZeroFreeDiagonal(final int n, final int[] Ap,
+			final int[] Ai)
+	{
+		int j, p, pend ;
+		for (j = 0 ; j < n ; j++)
+		{
+			pend = Ap [j+1] ;
+			for (p = Ap [j] ; p < pend ; p++)
+			{
+				if (Ai [p] == j)
+				{
+					break ;
+				}
+			}
+			if (p == pend)
+			{
+				return false ;
+			}
+		}
+		return true ;
 	}
 
 }

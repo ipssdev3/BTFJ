@@ -26,7 +26,7 @@ public class Dbtf_internal extends Dbtf {
 	/**
 	 * Enable debugging and assertions.
 	 */
-	public static boolean NDEBUG = true ;
+	public static final boolean NDEBUG = true ;
 
 	protected static void ASSERT (boolean a)
 	{

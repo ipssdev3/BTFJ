@@ -183,7 +183,6 @@ public class Dbtf_maxtrans extends Dbtf_internal {
 		i = EMPTY ;
 		head = 0 ;
 		Jstack [0] = k ;
-		ASSERT (Flag [k] != k) ;
 
 		while (head >= 0)
 		{
@@ -248,7 +247,6 @@ public class Dbtf_maxtrans extends Dbtf_internal {
 			{
 				i = Ai [p] ;
 				j2 = Match [i] ;
-				ASSERT (j2 != EMPTY) ;
 				if (Flag [j2] != k)
 				{
 					/* Node j2 is not yet visited, start a depth-first search on
@@ -388,12 +386,15 @@ public class Dbtf_maxtrans extends Dbtf_internal {
 	{
 		int[] Cheap, Flag, Istack, Jstack, Pstack ;
 		int i, j, k, nmatch, work_limit_reached, result ;
+		long totalStart = Dbtf_profile.now() ;
+		long phaseStart, allocNs = 0L, initNs = 0L, augmentNs = 0L ;
 
 		/* ------------------------------------------------------------------ */
 		/* get workspace and initialize */
 		/* ------------------------------------------------------------------ */
 
 		//Cheap  = Work ; Work += ncol ;
+		phaseStart = Dbtf_profile.now() ;
 		Cheap = new int [ncol] ;
 		Flag = new int [ncol] ;
 
@@ -401,8 +402,10 @@ public class Dbtf_maxtrans extends Dbtf_internal {
 		Istack = new int [ncol] ;
 		Jstack = new int [ncol] ;
 		Pstack = new int [ncol] ;
+		if (Dbtf_profile.enabled()) allocNs = System.nanoTime() - phaseStart ;
 
 		/* in column j, rows Ai [Ap [j] .. Cheap [j]-1] are known to be matched */
+		phaseStart = Dbtf_profile.now() ;
 		for (j = 0 ; j < ncol ; j++)
 		{
 			Cheap [j] = Ap [j] ;
@@ -420,6 +423,7 @@ public class Dbtf_maxtrans extends Dbtf_internal {
 			maxwork *= Ap [ncol] ;
 		}
 		work[0] = 0 ;
+		if (Dbtf_profile.enabled()) initNs = System.nanoTime() - phaseStart ;
 
 		/* ------------------------------------------------------------------ */
 		/* find a matching row for each column k */
@@ -430,8 +434,10 @@ public class Dbtf_maxtrans extends Dbtf_internal {
 		for (k = 0 ; k < ncol ; k++)
 		{
 			/* find an augmenting path to match some row i to column k */
+			phaseStart = Dbtf_profile.now() ;
 			result = augment (k, Ap, Ai, Match, Cheap, Flag, Istack, Jstack, Pstack,
 					work, maxwork) ;
+			if (Dbtf_profile.enabled()) augmentNs += System.nanoTime() - phaseStart ;
 			if (result == TRUE)
 			{
 				/* we found it.  Match [i] = k for some row i has been done. */
@@ -457,6 +463,9 @@ public class Dbtf_maxtrans extends Dbtf_internal {
 			work[0] = EMPTY ;
 		}
 
+		Dbtf_profile.maxtrans(nrow, ncol, Ap[ncol], nmatch, work[0],
+				Dbtf_profile.enabled() ? System.nanoTime() - totalStart : 0L,
+				allocNs, initNs, augmentNs);
 		return (nmatch) ;
 	}
 
